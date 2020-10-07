@@ -1,0 +1,70 @@
+---
+- name: Cert Management on BIG-IP
+  hosts: lb
+  connection: local
+  gather_facts: false
+  vars:
+    # below is the fip name that will be created, it should match the cert DNS name
+    F5_VIP_Name: testtest.gregsowell.com
+    provider:
+     server: ReplaceMe
+#      user: admin
+#      password: myveryspecialpassword
+     user: "{{ provider_user }}"
+     password: "{{ provider_pword }}"
+     server_port: 8443
+     validate_certs: "no"
+
+  tasks:
+  - name: UPDATE A VIRTUAL SERVER -done
+    bigip_virtual_server:
+      provider: "{{provider}}"
+      name: "{{ F5_VIP_Name }}_https_vip"
+      port: "8081"
+      profiles:
+      - name: "{{F5_VIP_Name}}_ClientSSL_profile"
+        context: client-side
+      - oneconnect
+      state: absent
+
+  - name: Create a client SSL profile with a cert/key/chain setting -done
+    bigip_profile_client_ssl:
+      provider: "{{provider}}"
+      state: absent
+      name: "{{F5_VIP_Name}}_ClientSSL_profile"
+
+  - name: SSL key upload -done
+    bigip_ssl_key:
+      provider: "{{provider}}"
+      name: "{{F5_VIP_Name}}_Key"
+      state: absent
+
+#SSL Upload and Modification of VIP to use New Certificate
+  - name: SSL cert upload -done
+    bigip_ssl_certificate:
+      provider: "{{provider}}"
+      name: "{{F5_VIP_Name}}_Cert"
+      state: absent
+
+  - name: Create a HTTPS Virtual Server -done
+    bigip_virtual_server:
+      provider: "{{provider}}"
+      state: absent
+      name: "{{ F5_VIP_Name }}_https_vip"
+    when: F5_VIP_Name is defined
+
+  - name: Add Pool Members -done
+    bigip_pool_member:
+      provider: "{{provider}}"
+      state: absent
+      pool: "{{ F5_VIP_Name }}_pool"
+      name: "{{hostvars[item].inventory_hostname}}"
+      host: "{{hostvars[item].private_ip}}"
+      port: "80"
+    loop: "{{ groups['web'] }}"
+
+  - name: Create Pool with Members -done
+    bigip_pool:
+      provider: "{{provider}}"
+      state: absent
+      name: "{{ F5_VIP_Name }}_pool"

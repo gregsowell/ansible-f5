@@ -1,0 +1,107 @@
+---
+- name: create LE cert
+  hosts: localhost
+  gather_facts: false
+#  become: true
+  vars:
+    # site_dns is the DNS name you will be creating the cert for
+    site_dns: testtest.gregsowell.com
+    #files_loc is where you will store your keys and certificates
+#    files_loc: "{{ playbook_dir }}"
+    files_loc: /opt/cert-store
+    # private_key_le is the letsencrypt account key
+    private_key_le: "{{ files_loc }}/le-account.key"
+    # private_key_csr is the key associated with the certificate for this site
+    private_key_csr: "{{ files_loc }}/{{ site_dns }}.key"
+    # email used for cloudflare api
+    email: greg@gregsowell.com
+    # domain the cert lives under
+    dns_zone: gregsowell.com
+    # dns_key is your cloudflare api key
+    dns_key: "{{ supp_keyc }}"
+
+  tasks:
+#  - debug:
+#      var: files_loc
+
+  - name: Create directory for certs directory
+    file:
+      path: "{{ files_loc }}"
+      state: directory
+      mode: '0755'
+      owner: awx
+      group: awx
+
+  - name: Generate Letsencrypt private key
+    openssl_privatekey:
+      path: "{{ private_key_le }}"
+      state: present
+    delegate_to: localhost
+
+  - name: Generate CSR private key
+    openssl_privatekey:
+      path: "{{ private_key_csr }}"
+      state: present
+    delegate_to: localhost
+
+  - name: Make sure account exists and has given contacts. We agree to TOS.
+    community.crypto.acme_account:
+      account_key_src: "{{ private_key_le }}"
+      state: present
+      terms_agreed: yes
+      acme_version: 2
+      acme_directory: https://acme-v02.api.letsencrypt.org/directory
+      contact:
+      - mailto:nomail@gregsowell.com
+    delegate_to: localhost
+
+  - name: Generate an OpenSSL Certificate Signing Request
+    community.crypto.openssl_csr:
+      path: "{{ files_loc }}/{{ site_dns }}.csr"
+      privatekey_path: "{{ private_key_csr }}"
+      common_name: "{{ site_dns }}"
+
+  - name: Create a challenge using an account key file.
+    community.crypto.acme_certificate:
+      account_key_src: "{{ private_key_le }}"
+      account_email: "{{ email }}"
+      src: "{{ files_loc }}/{{ site_dns }}.csr"
+      cert: "{{ files_loc }}/{{ site_dns }}.crt"
+      challenge: dns-01
+      acme_directory: https://acme-v02.api.letsencrypt.org/directory
+      # Renew if the certificate is at least 30 days old
+      remaining_days: 60
+      acme_version: 2
+    register: com_challenge
+
+  - name: debug com_challenge
+    debug:
+      var: com_challenge
+
+  - name: Create an TXT record on cloudflare when the record file exists
+    when: com_challenge.challenge_data[site_dns]['dns-01'].record is defined
+    community.general.cloudflare_dns:
+      zone: "{{ dns_zone }}"
+      record: "{{ com_challenge.challenge_data[site_dns]['dns-01'].record }}"
+      value: "{{ com_challenge.challenge_data[site_dns]['dns-01'].resource_value }}"
+      type: TXT
+      account_email: "{{ email }}"
+      account_api_key: "{{ dns_key }}"
+    register: record
+
+  - name: Let the challenge be validated and retrieve the cert and intermediate certificate - retry multiple times because the DNS can be a little slow
+    community.crypto.acme_certificate:
+      account_key_src: "{{ private_key_le }}"
+      account_email: "{{ email }}"
+      src: "{{ files_loc }}/{{ site_dns }}.csr"
+      cert: "{{ files_loc }}/{{ site_dns }}.crt"
+      fullchain: "{{ files_loc }}/{{ site_dns }}-fullchain.crt"
+      chain: "{{ files_loc }}/{{ site_dns }}-intermediate.crt"
+      challenge: dns-01
+      remaining_days: 60
+      data: "{{ com_challenge }}"
+      acme_directory: https://acme-v02.api.letsencrypt.org/directory
+      acme_version: 2
+    when: com_challenge is changed
+    retries: 10
+    delay: 12

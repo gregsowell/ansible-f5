@@ -1,0 +1,24 @@
+---
+- name: Cert Management on BIG-IP
+  hosts: lb
+  connection: local
+  gather_facts: false
+  vars:
+    F5_VIP_Name: testtest.gregsowell.com
+    files_loc: /opt/cert-store
+    provider:
+     server: ReplaceMe
+#      user: admin
+#      password: superseriousPW
+     user: "{{ provider_user }}"
+     password: "{{ provider_pword }}"
+     server_port: 8443
+     validate_certs: "no"
+
+  tasks:
+## New SSL Install
+  - name: SSL cert upload
+    bigip_ssl_certificate:
+      provider: "{{provider}}"
+      name: "{{F5_VIP_Name}}_Cert"
+      content: "{{ lookup('file', files_loc + '/' + F5_VIP_Name + '.crt') }}"
