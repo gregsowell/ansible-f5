@@ -18,7 +18,7 @@
     # domain the cert lives under
     dns_zone: gregsowell.com
     # dns_key is your cloudflare api key
-    dns_key: "{{ supp_keyc }}"
+    dns_key: "{{ dns_keyc }}"
 
   tasks:
 #  - debug:
